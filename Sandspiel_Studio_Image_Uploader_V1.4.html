@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sandspiel Studio ImageUploader V1.4</title>
+<style>
+  body { font-family: sans-serif; text-align: center; margin-top: 20px; }
+  canvas { border: 1px solid #ccc; margin-top: 10px; }
+  textarea { width: 90%; height: 150px; margin-top: 10px; }
+  button { margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h2>Image to Sandspiel Converter</h2>
+<input type="file" id="upload" accept="image/*"><br>
+<canvas id="canvas" width="500" height="500"></canvas>
+<br>
+<button id="copyData">Copy Data to Clipboard</button>
+<textarea id="output" placeholder="Element, Color, Hue data will appear here..."></textarea>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let width = 300;
+
+let element_data = [];
+let color_data = [];
+let hue_data = [];
+
+// RGB → Hue
+function rgbToHue(r,g,b){
+    const maxColor = Math.max(r,g,b);
+    const minColor = Math.min(r,g,b);
+    const diff = maxColor - minColor;
+    if(diff === 0) return 0;
+    let hue;
+    if(maxColor === r) hue = (60*((g-b)/diff)) % 360;
+    else if(maxColor === g) hue = (60*((b-r)/diff)) + 120;
+    else hue = (60*((r-g)/diff)) + 240;
+    if(hue < 0) hue += 360;
+    return Math.floor((hue/360)*100);
+}
+
+// HSV → RGB
+function hsvToRgb(h,s,v){
+    h = h % 360;
+    const c = v*s;
+    const x = c*(1 - Math.abs((h/60) % 2 -1));
+    const m = v-c;
+    let r=0,g=0,b=0;
+    if(h<60){r=c; g=x; b=0;}
+    else if(h<120){r=x; g=c; b=0;}
+    else if(h<180){r=0; g=c; b=x;}
+    else if(h<240){r=0; g=x; b=c;}
+    else if(h<300){r=x; g=0; b=c;}
+    else {r=c; g=0; b=x;}
+    return [(r+m)*255,(g+m)*255,(b+m)*255];
+}
+
+// Process the image
+function convertImage(image){
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = width;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(image,0,0,width,width);
+    const imgData = tempCtx.getImageData(0,0,width,width);
+    const data = imgData.data;
+
+    element_data = [];
+    color_data = [];
+    hue_data = [];
+
+    for(let y=0; y<width; y++){
+        for(let x=0; x<width; x++){
+            const i = (x + y*width)*4;
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            let element=0, color=0, hue=0;
+            
+            const avg = (Math.abs(r-g)+Math.abs(g-b)+Math.abs(r-b))/3;
+            const lum = (r+g+b)/3;
+
+            if(avg <= 10){
+                element=2; color = Math.floor((r/255)*100); hue=0;
+            } else if(lum<127.5){
+                element=0; color = Math.floor((lum/127.5)*100); hue = rgbToHue(r,g,b);
+            } else{
+                element=1; color = Math.floor(((lum-127.5)/127.5)*100); hue = rgbToHue(r,g,b);
+            }
+
+            element_data.push(`sands[${i}+0]=${element};`);
+            color_data.push(`sands[${i}+1]=${color};`);
+            hue_data.push(`sands[${i}+2]=${hue};`);
+
+            let h=0,s=0,v=0;
+            if(element===2) v=color/100;
+            else if(element===0){h=(hue/100)*360; s=1; v=color/100;}
+            else {h=(hue/100)*360; s=1-(color/100); v=1;}
+            const rgb = hsvToRgb(h,s,v);
+            data[i] = rgb[0];
+            data[i+1] = rgb[1];
+            data[i+2] = rgb[2];
+        }
+    }
+
+    tempCtx.putImageData(imgData,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(tempCanvas, canvas.width/2-width/2, canvas.height/2-width/2, width, width);
+
+    // Combine data for easy copy
+    document.getElementById('output').value = 
+        "// element_data\n" + element_data.join('\n') + "\n\n" +
+        "// color_data\n" + color_data.join('\n') + "\n\n" +
+        "// hue_data\n" + hue_data.join('\n');
+}
+
+// Handle file upload
+document.getElementById('upload').addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const img = new Image();
+    img.onload = ()=> convertImage(img);
+    img.src = URL.createObjectURL(file);
+});
+
+// Copy to clipboard
+document.getElementById('copyData').addEventListener('click', ()=>{
+    const textarea = document.getElementById('output');
+    textarea.select();
+    document.execCommand('copy');
+    alert("Data copied to clipboard!");
+});
+</script>
+</body>
+</html>
